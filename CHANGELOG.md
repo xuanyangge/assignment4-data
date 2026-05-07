@@ -2,6 +2,12 @@
 
 All changes we make to the assignment code or PDF will be documented in this file.
 
+## [26.0.0] - 2026-05-06
+
+## Changed
+- Replaced raw 5,000-WET filtering with English-only WET files from 2,500 raw WETs.
+- Update final training to 8 B200 GPUs, 16,384 steps and 8.6B tokens.
+
 ## [1.0.4] - 2025-05-19
 ### Changed
 - code: Halve training tokens for the leaderboard run

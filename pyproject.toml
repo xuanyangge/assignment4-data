@@ -1,14 +1,12 @@
 [project]
 name = "cs336-data"
-version = "1.0.0"
+version = "26.0.0"
 description = "CS336 Assignment 4 - Data Quality"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "numpy<2.0",
-    "cs336-basics",
-    "torch~=2.7.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
-    "torch~=2.2.2; sys_platform == 'darwin' and platform_machine == 'x86_64'", # Intel Macs
+    # Intel Macs
     "tqdm>=4.67.1",
     "wandb>=0.19.7",
     "pytest>=8.3.5",
@@ -19,17 +17,30 @@ dependencies = [
     "nltk>=3.9.1",
     "fastwarc>=0.15.2",
     "tldextract>=5.3.0",
+    "einops>=0.8.1", # tensor operations
+    "einx>=0.3.0", # more general tensor operations
+    "jaxtyping>=0.3.0", # type hints for pytorch/jax/numpy
+    "psutil>=6.1.1",
+    "regex>=2024.11.6", # more powerful regex than the builtin `re` module
+    "submitit>=1.5.2", # job submission for SLURM
+    "tiktoken>=0.9.0",
+    "transformers>=4.51.3",
+    "typer>=0.15.3",
+    "hydra-core>=1.3.2",
+    "modal>=1.4.2",
+    "furu==0.0.31",
+    "polars>=1.40.1",
+    "warcio>=1.8.1",
+    "pytest-timeout>=2.4.0",
+    "torch>=2.11.0",
 ]
 
 [tool.setuptools.packages.find]
-include = ["cs336_data", "tests"]
+include = ["cs336_data", "tests", "cs336_basics"]
 
 [tool.uv]
 package = true
 python-preference = "managed"
-
-[tool.uv.sources]
-cs336-basics = { path = "./cs336-basics", editable = true }
 
 [tool.pytest.ini_options]
 log_cli = true
@@ -42,6 +53,11 @@ line-length = 120
 [tool.ruff.lint.extend-per-file-ignores]
 # Also ignore `E402` in all `__init__.py` files.
 "__init__.py" = ["E402", "F401", "F403", "E501"]
+
+[dependency-groups]
+dev = [
+    "ipython>=9.13.0",
+]
 
 [tool.ruff.lint]
 extend-select = ["UP"]

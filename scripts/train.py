@@ -1,53 +1,58 @@
 """
 Train a language model on one or multiple GPUs.
 
-Default config is `experiment/your_data`, which will train on your GPT-2 tokenized dataset and validate on `tokenized_paloma_c4_100_domains_validation.bin`.
-
-To ready the config for your run, you should:
-1. open the config file at `cs336-basics/configs/experiment/your_data.yaml` and set the `paths.train_bin` attribute to point to the file containing your tokenized training data.
-2. You should also set an appropriate `training.wandb_entity` and `training.wandb_project` attribute for logging.
+The training config is hard-coded below. Pass the path to your GPT-2-tokenized
+dataset with `--train-bin`.
 
 To run single-GPU training:
 
 ```
-uv run python scripts/train.py --config-name=experiment/your_data
+uv run python scripts/train.py --train-bin /root/data/your_data.bin
 ```
 
-To run multi-GPU training, use `torchrun`. e.g., for single-node, 2 GPU:
+To run the final multi-GPU training job on Modal with 8 B200 GPUs:
 
 ```
-uv run torchrun --standalone --nproc_per_node=2 scripts/train.py --config-name=experiment/your_data
+uv run modal run scripts/train.py --train-bin /root/data/your_data.bin
 ```
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import os
+import shutil
+import subprocess
+import sys
+import time
+from dataclasses import asdict
 from pathlib import Path
 
-import hydra
 import numpy as np
 import numpy.typing as npt
 import torch
 import torch.nn.functional as F
-from omegaconf import OmegaConf
+import wandb
 from rich.pretty import pprint as pprint
 from rich.traceback import install
 from torch.distributed import destroy_process_group, init_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm, trange
 
-import wandb
 from cs336_basics.data import get_batch
 from cs336_basics.model import BasicsTransformerLM
 from cs336_basics.optimizer import get_cosine_lr
-from cs336_basics.train_config import Config, register_configs
-
-register_configs()
+from cs336_basics.train_config import Config, PathsConfig
+from cs336_data.modal_utils import MODAL_SECRETS, VOLUME_MOUNTS, app, build_image
 
 logger = logging.getLogger(__name__)
+N_GPUS = 8
+DEFAULT_MODAL_VALID_BIN = "/shared-data/tokenized_paloma_c4_100_domains_validation.bin"
+DEFAULT_MODAL_MODEL_OUTPUT = "/root/data/output/your_data"
+LOCAL_DATA_DIR = Path("/tmp/data")
+EPHEMERAL_DISK_MB = 52_4288
 
 if torch.cuda.is_available():
     torch.set_float32_matmul_precision("high")
@@ -55,15 +60,7 @@ if torch.cuda.is_available():
 install(show_locals=True)
 
 
-@hydra.main(version_base=None, config_path=str(Path("configs").absolute().resolve()), config_name="config")
-def main(cfg: Config) -> None:
-    cfg_dict = OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
-    pprint(cfg_dict)
-
-    # Take defaults
-    default_cfg = OmegaConf.structured(Config())
-    cfg = OmegaConf.merge(default_cfg, cfg_dict)
-
+def train_from_config(cfg: Config) -> None:
     train_data = np.memmap(cfg.paths.train_bin, dtype=np.uint16, mode="r")
     dev_data = np.memmap(cfg.paths.valid_bin, dtype=np.uint16, mode="r")
     model = BasicsTransformerLM(
@@ -75,7 +72,6 @@ def main(cfg: Config) -> None:
         d_ff=cfg.model.d_ff,
         rope_theta=cfg.model.rope_theta,
     )
-    pprint(model)
 
     # Wrap model in DDP, if we're using it.
     is_ddp = int(os.environ.get("RANK", -1)) != -1
@@ -97,6 +93,8 @@ def main(cfg: Config) -> None:
         is_master_process = True
 
     if is_master_process:
+        pprint(cfg)
+        pprint(model)
         logger.info(
             "Total number of tokens per training step: "
             + str(
@@ -111,7 +109,7 @@ def main(cfg: Config) -> None:
                 # Set the project where this run will be logged
                 entity=cfg.training.wandb_entity,
                 project=cfg.training.wandb_project,
-                config=OmegaConf.to_container(cfg, resolve=True),
+                config=asdict(cfg),
                 name=cfg.paths.model_output.name,
             )
 
@@ -303,5 +301,91 @@ def estimate_dev_loss(
     return losses.mean()
 
 
+def copy_data_to_local_disk(*paths: Path) -> list[Path]:
+    """Copy data files from the network volume to Modal's ephemeral disk."""
+    print("Copying data to local disk")
+    LOCAL_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    total_bytes = sum(path.stat().st_size for path in paths)
+    ephemeral_bytes = EPHEMERAL_DISK_MB * 1_000_000
+    if total_bytes > ephemeral_bytes:
+        raise ValueError(f"Data files require {total_bytes / 1_000_000:.0f} MB, which exceeds {EPHEMERAL_DISK_MB=}")
+
+    local_paths: list[Path] = []
+    for source in paths:
+        destination = LOCAL_DATA_DIR / source.name
+        local_paths.append(destination)
+        if destination.exists() and destination.stat().st_size == source.stat().st_size:
+            logger.info(f"Local data copy already exists: {destination}")
+            continue
+
+        copy_started_at = time.perf_counter()
+        tmp_destination = destination.with_suffix(f"{destination.suffix}.tmp")
+        logger.info(f"Copying {source} to {destination}")
+        shutil.copy2(source, tmp_destination)
+        tmp_destination.rename(destination)
+        logger.info(f"Copied {source} in {time.perf_counter() - copy_started_at:.1f}s")
+    print("Finished copying data to local disk")
+
+    return local_paths
+
+
+def run_modal_worker() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--train-bin", required=True)
+    parser.add_argument("--valid-bin", default=DEFAULT_MODAL_VALID_BIN)
+    args = parser.parse_args()
+
+    train_from_config(
+        Config(
+            paths=PathsConfig(
+                train_bin=Path(args.train_bin),
+                valid_bin=Path(args.valid_bin),
+                model_output=Path(DEFAULT_MODAL_MODEL_OUTPUT),
+            ),
+        )
+    )
+
+
+@app.function(
+    image=build_image(),
+    volumes=VOLUME_MOUNTS,
+    secrets=MODAL_SECRETS,
+    gpu=f"B200:{N_GPUS}",
+    timeout=60 * 60 * 12,
+    ephemeral_disk=EPHEMERAL_DISK_MB,
+)
+def run_modal_training(
+    train_bin: str,
+) -> None:
+    local_train_bin, local_valid_bin = copy_data_to_local_disk(Path(train_bin), Path(DEFAULT_MODAL_VALID_BIN))
+
+    command = [
+        "torchrun",
+        "--standalone",
+        f"--nproc_per_node={N_GPUS}",
+        "train.py",
+        "--modal-worker",
+        "--train-bin",
+        str(local_train_bin),
+        "--valid-bin",
+        str(local_valid_bin),
+    ]
+
+    subprocess.run(command, cwd="/root", check=True)
+
+
+@app.local_entrypoint()
+def modal_main(
+    train_bin: str,
+) -> None:
+    run_modal_training.remote(
+        train_bin=train_bin,
+    )
+
+
 if __name__ == "__main__":
-    main()
+    if "--modal-worker" in sys.argv:
+        sys.argv.remove("--modal-worker")
+        run_modal_worker()
+    else:
+        run_modal_worker()

@@ -7,6 +7,7 @@ import torch
 from transformers import AutoTokenizer
 
 from cs336_basics.model import BasicsTransformerLM
+from cs336_data.modal_utils import VOLUME_MOUNTS, app, build_image
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,44 @@ def generate(
             print("-" * 100)
             print("Generated: ", tokenizer.decode(output[0].tolist()))
             print("=" * 100)
+
+
+@app.function(image=build_image(), volumes=VOLUME_MOUNTS, gpu="B200", timeout=60 * 30)
+def modal_generate(
+    model_path: str,
+    prompt: str = "Linda was on a walk in the park",
+    num_samples: int = 4,
+    max_new_tokens: int = 256,
+    temperature: float = 0.7,
+    top_k: int = 50,
+):
+    generate(
+        model_path=model_path,
+        prompt=prompt,
+        num_samples=num_samples,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+        top_k=top_k,
+    )
+
+
+@app.local_entrypoint()
+def modal_main(
+    model_path: str,
+    prompt: str = "Linda was on a walk in the park",
+    num_samples: int = 4,
+    max_new_tokens: int = 256,
+    temperature: float = 0.7,
+    top_k: int = 50,
+):
+    modal_generate.remote(
+        model_path=model_path,
+        prompt=prompt,
+        num_samples=num_samples,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+        top_k=top_k,
+    )
 
 
 if __name__ == "__main__":
