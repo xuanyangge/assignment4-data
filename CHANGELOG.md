@@ -2,6 +2,11 @@
 
 All changes we make to the assignment code or PDF will be documented in this file.
 
+## [26.0.1] - 2026-05-07
+
+## Changed
+- Automatically make folder for local data
+
 ## [26.0.0] - 2026-05-06
 
 ## Changed
