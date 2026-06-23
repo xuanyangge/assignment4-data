@@ -6,7 +6,7 @@ Coding assignments are mostly written by hand, with the exception of some boiler
 
 **Status for this assignment:** Model not trained using B200.
 
-Please **do not** use this repo to copy/paste assignment solutions. If you're interested in discussing the assignment, or AI in general, feel free to reach out at xuanyangge@gmail.com.
+Please **do not** use this repo to copy/paste assignment solutions. If you're interested in discussing the assignment, or AI in general, feel free to reach out at virtualmorale@gmail.com.
 
 For a full description of the assignment, see the assignment handout at
 [cs336_assignment4_data.pdf](./cs336_assignment4_data.pdf)
