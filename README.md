@@ -1,5 +1,13 @@
 # CS336 Spring 2026 Assignment 4: Data
 
+## ⚠️ Note on Authorship & Usage
+
+Coding assignments are mostly written by hand, with the exception of some boilerplate code and plotting code. Most non-coding work is written by hand, except for some. Most assignments are complete except for the ones that require a **B200** GPU. AI was used to consult on questions or approaches.
+
+**Status for this assignment:** Model not trained using B200.
+
+Please **do not** use this repo to copy/paste assignment solutions. If you're interested in discussing the assignment, or AI in general, feel free to reach out at xuanyangge@gmail.com.
+
 For a full description of the assignment, see the assignment handout at
 [cs336_assignment4_data.pdf](./cs336_assignment4_data.pdf)
 
